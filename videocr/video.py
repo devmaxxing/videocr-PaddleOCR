@@ -62,6 +62,8 @@ class Video:
             for i in range(num_ocr_frames):
                 if i % modulo == 0:
                     frame = v.read()[1]
+                    if frame is None:
+                        continue
                     if not self.use_fullframe:
                         if crop_x_end and crop_y_end:
                             frame = frame[crop_y:crop_y_end, crop_x:crop_x_end]
