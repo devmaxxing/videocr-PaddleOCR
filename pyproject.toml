@@ -28,7 +28,7 @@ classifiers = [
 dependencies = [
   "thefuzz>=0.19",
   "python-Levenshtein>=0.12",
-  "paddleocr>=2.6",
+  "paddleocr>=2.6,<3.0.0",
 ]
 
 [project.urls]
