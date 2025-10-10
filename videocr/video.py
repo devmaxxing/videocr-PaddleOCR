@@ -118,7 +118,7 @@ class Video:
             frames_to_process = (num_ocr_frames + modulo - 1) // modulo
             try:
                 from tqdm import tqdm as _tqdm
-                pbar = _tqdm(total=frames_to_process, desc="Processing frames", unit="frame", dynamic_ncols=True, leave=False)
+                pbar = _tqdm(total=frames_to_process, desc="Processing frames", unit="frame", dynamic_ncols=True, leave=False, mininterval=120.0)
             except Exception:
                 pass
 
