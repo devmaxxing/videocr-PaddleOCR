@@ -99,9 +99,9 @@ def multi_process_infer(
     tasks = []
     for idx, video_path in enumerate(video_files):
         gpu_id = gpu_ids[idx % len(gpu_ids)] if use_gpu else None
-        tasks.append((video_path, gpu_id))
+        tasks.append((video_path, output_dir, gpu_id))
 
-    process_func = partial(process_video, output_dir=output_dir, lang=lang, **kwargs)
+    process_func = partial(process_video, lang=lang, **kwargs)
 
     print(f"🚀 Starting OCR on {len(video_files)} videos using {num_processes} process(es)...")
     pool.starmap(process_func, tasks)

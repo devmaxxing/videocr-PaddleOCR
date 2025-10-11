@@ -54,14 +54,16 @@ class Video:
                 use_doc_orientation_classify=False,
                 use_doc_unwarping=False,
                 use_textline_orientation=False,
-                device="gpu" if use_gpu else "cpu"
+                device="gpu" if use_gpu else "cpu",
+                enable_hpi=True
             )
         else:
             ocr = PaddleOCR(
                 lang=self.lang,
                 rec_model_dir=self.rec_model_dir,
                 det_model_dir=self.det_model_dir,
-                use_gpu=use_gpu
+                use_gpu=use_gpu,
+                enable_hpi=True
             )
 
         ocr_start = utils.get_frame_index(time_start, self.fps) if time_start else 0
@@ -121,41 +123,70 @@ class Video:
                 pbar = _tqdm(total=frames_to_process, desc="Processing frames", unit="frame", dynamic_ncols=True, leave=False, mininterval=120.0)
             except Exception:
                 pass
-
+            batch_size = 100
+            frames_batch = []
+            frames_index = []
+            
             for i in range(num_ocr_frames):
-                if i % modulo == 0:
-                    frame = v.read()[1]
-                    if frame is None:
-                        continue
-                    if not self.use_fullframe:
-                        if crop_x_end is not None and crop_y_end is not None:
-                            frame = frame[crop_y_start:crop_y_end, crop_x_start:crop_x_end]
-                        else:
-                            # only use bottom third of the frame by default
-                            frame = frame[2 * self.height // 3:, :]
+                ret, frame = v.read()
+                if not ret:
+                    break
 
-                    if brightness_threshold:
-                        frame = cv2.bitwise_and(frame, frame, mask=cv2.inRange(frame, (brightness_threshold, brightness_threshold, brightness_threshold), (255, 255, 255)))
+                if i % modulo != 0:
+                    continue
 
-                    if similar_image_threshold:
-                        grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        if prev_grey is not None:
-                            _, absdiff = cv2.threshold(cv2.absdiff(prev_grey, grey), similar_pixel_threshold, 255, cv2.THRESH_BINARY)
-                            if np.count_nonzero(absdiff) < similar_image_threshold:
-                                predicted_frames.end_index = i + ocr_start
-                                prev_grey = grey
-                                if pbar is not None:
-                                    pbar.update(1)
-                                continue
+                # Crop frame
+                if not self.use_fullframe:
+                    if crop_x_end is not None and crop_y_end is not None:
+                        frame = frame[crop_y_start:crop_y_end, crop_x_start:crop_x_end]
+                    else:
+                        # default: bottom third
+                        frame = frame[2 * self.height // 3:, :]
 
-                        prev_grey = grey
+                # Brightness filter
+                if brightness_threshold:
+                    frame = cv2.bitwise_and(frame, frame, mask=cv2.inRange(frame, 
+                                    (brightness_threshold, brightness_threshold, brightness_threshold), 
+                                    (255, 255, 255)))
 
-                    predicted_frames = PredictedFrames(i + ocr_start, ocr.ocr(frame), conf_threshold_percent)
-                    self.pred_frames.append(predicted_frames)
+                # Skip similar frames
+                if similar_image_threshold:
+                    grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    if prev_grey is not None:
+                        _, absdiff = cv2.threshold(cv2.absdiff(prev_grey, grey),
+                                                similar_pixel_threshold, 255, cv2.THRESH_BINARY)
+                        if np.count_nonzero(absdiff) < similar_image_threshold:
+                            predicted_frames.end_index = i + ocr_start
+                            prev_grey = grey
+                            if pbar is not None:
+                                pbar.update(1)
+                            continue
+                    prev_grey = grey
+
+                # Thêm frame vào batch
+                frames_batch.append(frame)
+                frames_index.append(i + ocr_start)
+
+                # Nếu đủ batch hoặc cuối video → predict
+                if len(frames_batch) == batch_size or i == num_ocr_frames - 1:
+                    # Tạo boxes list cho batch (toàn frame)
+                    boxes_list = [[[0,0], [frame.shape[1]-1,0], 
+                                [frame.shape[1]-1, frame.shape[0]-1], [0, frame.shape[0]-1]]
+                                for frame in frames_batch]
+
+                    preds_batch = ocr.predict(frames_batch, boxes_list)
+
+                    # Lưu kết quả
+                    for idx, pred in zip(frames_index, preds_batch):
+                        predicted_frames = PredictedFrames(idx, pred, conf_threshold_percent)
+                        self.pred_frames.append(predicted_frames)
+
+                    # Reset batch
+                    frames_batch = []
+                    frames_index = []
+
                     if pbar is not None:
-                        pbar.update(1)
-                else:
-                    v.read()
+                        pbar.update(len(preds_batch))
             if pbar is not None:
                 pbar.close()
         
